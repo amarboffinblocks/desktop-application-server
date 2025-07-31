@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, status, Depends
+from fastapi import APIRouter, HTTPException, status, Depends, Body
 from app.features.auth.schemas import (
     UserCreate,
     UserLogin,
@@ -10,7 +10,9 @@ from app.common.dependencies import authenticated_user
 from jose import JWTError
 from app.core.security import decode_access_token
 from typing import Optional
-
+from transformers import AutoTokenizer, AutoModel, AutoModelForCausalLM
+from huggingface_hub import login as hf_login
+import os
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 @router.post("/register")
@@ -60,3 +62,42 @@ async def get_me(current_user=Depends(authenticated_user)):
 async def logout(refresh_token: str):
     """Logout user by blacklisting refresh token. Token is sent in body."""
     return await AuthController.logout(refresh_token)
+
+@router.post('/download-model')
+def download_huggingface_model(
+    model_name: str,
+    auth_token: str = None,
+    use_causal: bool = True,
+    cache_dir: str = None
+):
+   
+    try:
+        # Authenticate if token provided
+        if auth_token:
+            hf_login(token=auth_token)
+
+        model_kwargs = {"use_auth_token": auth_token} if auth_token else {}
+        if cache_dir:
+            os.makedirs(cache_dir, exist_ok=True)
+            model_kwargs["cache_dir"] = cache_dir
+
+        # Download tokenizer
+        tokenizer = AutoTokenizer.from_pretrained(model_name, **model_kwargs)
+
+        # Download model
+        if use_causal:
+            model = AutoModelForCausalLM.from_pretrained(model_name, **model_kwargs)
+        else:
+            model = AutoModel.from_pretrained(model_name, **model_kwargs)
+
+        return {
+            "success": True,
+            "message": f"Model '{model_name}' downloaded successfully.",
+            "cache_dir": model.config._name_or_path
+        }
+
+    except Exception as e:
+        return {
+            "success": False,
+            "error": str(e)
+        }

@@ -8,6 +8,8 @@ from datetime import datetime
 from app.db.mongo import get_blacklist_collection, get_access_blacklist_collection
 from jose import JWTError
 from app.core.security import decode_access_token
+from huggingface_hub import snapshot_download, hf_hub_download
+import os
 
 class AuthController:
     @staticmethod
@@ -92,3 +94,31 @@ class AuthController:
     async def is_access_token_blacklisted(jti: str) -> bool:
         access_blacklist_col = get_access_blacklist_collection()
         return await access_blacklist_col.find_one({"jti": jti}) is not None
+
+    @staticmethod
+    def download_model(repo_id: str, filename: str = "", token: str = ""):
+        # Use a safe folder name for the model
+        models_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../../models'))
+        local_dir = os.path.join(models_dir, repo_id.replace('/', '-'))
+        os.makedirs(local_dir, exist_ok=True)
+        try:
+            kwargs = {}
+            if token:
+                kwargs["token"] = token
+            if filename and filename.strip():
+                hf_hub_download(
+                    repo_id=repo_id,
+                    filename=filename,
+                    local_dir=local_dir,
+                    **kwargs
+                )
+            else:
+                snapshot_download(
+                    repo_id=repo_id,
+                    local_dir=local_dir,
+                    local_dir_use_symlinks=False,
+                    **kwargs
+                )
+            return {"success": True, "message": f"Model downloaded to {local_dir}"}
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=str(e))

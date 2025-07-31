@@ -1,1 +1,9 @@
 /venv
+/models
+/.env
+/node_modules
+/dist
+/.cache
+/.vscode
+/.idea
+/.DS_Store

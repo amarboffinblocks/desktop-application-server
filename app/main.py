@@ -1,3 +1,5 @@
+import warnings
+warnings.filterwarnings("ignore", category=UserWarning, module="pydantic")
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.api.v1.api_router import api_router
@@ -45,3 +47,4 @@ async def generic_exception_handler(request: Request, exc: Exception):
         status_code=500,
         content={"success": False, "detail": "Internal server error."},
     )
+

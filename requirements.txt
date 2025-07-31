@@ -5,3 +5,9 @@ pydantic
 python-jose[cryptography]
 passlib[bcrypt]
 email-validator
+llama-cpp-python
+transformers
+torch
+
+# For async file operations in image handler
+aiofiles

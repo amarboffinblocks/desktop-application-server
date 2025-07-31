@@ -15,7 +15,8 @@ class PyObjectId(ObjectId):
             raise ValueError("Invalid ObjectId")
         return ObjectId(v)
 
-
+class ModelRequest(BaseModel):
+    model_name: str
 class UserModel(BaseModel):
     id: Optional[PyObjectId] = Field(default=None, alias="_id")
     email: EmailStr
