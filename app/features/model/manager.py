@@ -141,7 +141,9 @@ class ModelManager:
             self._current_model = Llama(
                 model_path=model_path,
                 n_ctx=2048,
-                n_threads=4,
+                n_threads=10,
+                n_batch=512,
+                n_gpu_layers=-1,
                 verbose=False
             )
             self._update_load_progress(80, "Model initialized")
@@ -178,47 +180,27 @@ class ModelManager:
         max_tokens: int = 200,
         temperature: float = 0.7,
         top_p: float = 0.9,
-        stream: bool = False
-    ) -> Dict[str, Any]:
-    
+        stream: bool = True
+    ):
+        """Stream tokens from model"""
         if not self._current_model:
             raise RuntimeError("No model is currently loaded")
-            
+
         try:
-            # Generate response
-            response = self._current_model.create_chat_completion(
+            # Always use stream mode
+            response_stream = self._current_model.create_chat_completion(
                 messages=prompt,
                 max_tokens=max_tokens,
                 temperature=temperature,
+                # n_threads=8,  
                 top_p=top_p,
-                stream=stream
+                stream=True
             )
 
-            # --- If streaming, collect tokens ---
-            if stream:
-                collected_text = ""
-                for chunk in response:  # generator
-                    if "choices" in chunk and chunk["choices"][0].get("delta", {}).get("content"):
-                        collected_text += chunk["choices"][0]["delta"]["content"]
-
-                return {
-                    "response": collected_text,
-                    "model": self._current_model_name
-                }
-
-            # --- Normal mode (non-stream) ---
-            else:
-                if isinstance(response, dict) and "choices" in response:
-                    content = response["choices"][0]["message"]["content"]
-                elif isinstance(response, str):
-                    content = response
-                else:
-                    raise RuntimeError(f"Unexpected response format: {type(response)}")
-
-                return {
-                    "response": content,
-                    "model": self._current_model_name
-                }
+            # Yield token by token
+            for chunk in response_stream:
+                if "choices" in chunk and chunk["choices"][0].get("delta", {}).get("content"):
+                    yield chunk["choices"][0]["delta"]["content"]
 
         except Exception as e:
             logger.error(f"Error generating response: {str(e)}")

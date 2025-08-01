@@ -26,3 +26,5 @@ async def authenticated_user(token: str = Depends(oauth2_scheme)):
     if user is None or not user.is_verified:
         raise credentials_exception
     return user
+
+

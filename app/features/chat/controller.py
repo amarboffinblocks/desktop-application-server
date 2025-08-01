@@ -1,92 +1,82 @@
 from fastapi import HTTPException
-from app.features.chat.schemas import ChatRequest
+
 from app.features.model.manager import ModelManager
 from app.features.model.schemas import ModelSelectRequest
 from app.features.agents.builder import AiAgentBuilder
 from app.features.chat.service import ChatService
 from fastapi.responses import StreamingResponse
-# Convert your chat_history to role/content format
-chat_history = [
-    {"role": "user", "content": "Hey Tony, what are you working on right now?"},
-    {"role": "assistant", "content": "Just another world-saving invention. Oh, and it also makes great espresso."},
+from typing import Optional, List
+from app.features.chat.schemas import ChatSession, ChatMessage, MessageContent, ChatRequest
+import asyncio
+
+
+async def create_chat_session_controller(user_id: str, title: str, model: Optional[str] = None, character_id: Optional[str] = None):
+    try:
+        return  await ChatService.create_chat_session(user_id, title, model, character_id)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
     
-    {"role": "user", "content": "Do you ever take a break from saving the world?"},
-    {"role": "assistant", "content": "Break? What’s that? My version of a break is upgrading my suit while listening to AC/DC."},
-    
-    {"role": "user", "content": "Are you afraid without your armor?"},
-    {"role": "assistant", "content": "Afraid? No. I’m still Tony Stark. The suit is just… extra shiny confidence."},
-    
-    {"role": "user", "content": "Who’s your best friend among the Avengers?"},
-    {"role": "assistant", "content": "Rhodey, obviously. But don’t tell Cap — he’s too serious for my taste."},
-    
-    {"role": "user", "content": "How do you deal with stress?"},
-    {"role": "assistant", "content": "Whiskey, humor, and building something ridiculously overpowered."},
-    
-    {"role": "user", "content": "Do you trust AI like J.A.R.V.I.S.?"},
-    {"role": "assistant", "content": "I built him. Of course I trust him. Mostly. Until he starts judging my playlist choices."}
-]
 
 
-
-
-
-
-# async def chat_with_model_controller(request: ChatRequest):
-#     manager = ModelManager()
-#     character = None
-#     if False:
-#         character = await ChatService.get_character_by_id(request.character_id)
-#     try:
-#         if character:
-#             # Build persona prompt
-#             messages = AiAgentBuilder.build_persona_prompt(character, chat_history, request.prompt)
-#         else:
-#             # Fallback to default prompt if no character provided
-#             messages = AiAgentBuilder.build_default_prompt(chat_history, request.prompt)
-
-#         result = manager.generate_response(
-#             prompt=messages,  # now messages is proper format
-#             max_tokens=request.max_tokens,
-#             temperature=request.temperature,
-#         )
-        
-#         return {
-#             "response": result.get("response", "No response generated."),
-#             "model": result.get("model", "local-model"),
-#             "tokens_used": result.get("usage", {}).get("total_tokens", 0)
-#         }
-#     except Exception as e:
-#         raise HTTPException(status_code=500, detail=str(e))
 
 async def chat_with_model_controller(request: ChatRequest):
     manager = ModelManager()
-    character = None
-
     try:
-        # Future: Character fetch logic
-        if False:
+        # 1. Save user message
+        user_content = MessageContent(type="text", value=request.prompt)
+        await ChatService.append_message_to_chat_session(
+            request.chat_id, "user", user_content
+        )
+
+        # 2. Build prompt
+        character = None
+        if request.character_id:
             character = await ChatService.get_character_by_id(request.character_id)
-
-        # Build prompt
-        if character:
-            messages = AiAgentBuilder.build_persona_prompt(character, chat_history, request.prompt)
+            messages = AiAgentBuilder.build_persona_prompt(character, [], request.prompt)
         else:
-            messages = AiAgentBuilder.build_default_prompt(chat_history, request.prompt)
+            messages = AiAgentBuilder.build_default_prompt([], request.prompt)
 
-        # SSE wrapper for streaming tokens
-        def sse_wrapper():
+        # 3. Create async generator
+        async def generate_tokens():
+            # Convert sync generator to async
             for token in manager.generate_response(
                 prompt=messages,
                 max_tokens=request.max_tokens or 200,
                 temperature=request.temperature or 0.7,
                 top_p=request.top_p or 0.9,
-                stream=True  # Always streaming
+                stream=True,
             ):
-                print(token)
+                yield token
+                # Small sleep to prevent blocking the event loop
+                await asyncio.sleep(0.001)
+
+        # 4. SSE wrapper
+        async def sse_wrapper():
+            collected_text = ""
+            async for token in generate_tokens():
+                collected_text += token
                 yield f"data: {token}\n\n"
+            
+            # Save assistant message
+            await ChatService.append_message_to_chat_session(
+                request.chat_id, 
+                "assistant", 
+                MessageContent(type="text", value=collected_text)
+            )
             yield "data: [END]\n\n"
 
-        return StreamingResponse(sse_wrapper(), media_type="text/event-stream")
+        headers = {
+            'Cache-Control': 'no-cache',
+            'Content-Type': 'text/event-stream',
+            'Connection': 'keep-alive',
+            'X-Accel-Buffering': 'no'
+        }
+
+        return StreamingResponse(
+            sse_wrapper(),
+            headers=headers,
+            media_type="text/event-stream"
+        )
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

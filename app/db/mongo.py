@@ -41,5 +41,3 @@ async def get_tags_collection():
 
 async def get_chats_collection():
     return db["chats"]
-async def get_chat_messages_collection():
-    return db["chat_messages"]
